@@ -1,6 +1,6 @@
 # region imports
 from AlgorithmImports import *
-from models.candidates import VerticalCandidate, IronCondorCandidate
+from models import VerticalCandidate, IronCondorCandidate
 # endregion
 class OptionMetrics:
 

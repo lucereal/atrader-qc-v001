@@ -1,7 +1,6 @@
 # region imports
 from AlgorithmImports import *
-from models.candidates import IronCondorCandidate, VerticalCandidate
-from models.selection.scorer_result import ScorerResult
+from models import IronCondorCandidate, VerticalCandidate, ScorerResult
 # endregion
 
 class FinderResult:
@@ -48,3 +47,6 @@ class ContractSelectorResult:
         self.put_verticals: list[VerticalCandidate] = []
         self.had_error: bool = False
         self.exception = None
+
+    def is_verticals_populated(self):
+        return len(self.call_verticals) > 0 and len(self.put_verticals) > 0

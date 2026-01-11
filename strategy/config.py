@@ -15,7 +15,7 @@ class AlgorithmConfig:
     resolution: Resolution = Resolution.MINUTE  # or DAILY, HOUR
     data_normalization: DataNormalizationMode = DataNormalizationMode.RAW
     symbol = 'SPY'
-    scheduling_minutes = 5
+    scheduling_minutes = 15
     scheduling_date_rule = "every_day"
 
 
@@ -32,7 +32,7 @@ class ShortIronCondorConfig:
     # earliest minutes to open new trade
     start_trading_minutes_since_open = (9 * 60 + 45) - MARKET_OPEN_MINUTES  # 15 = 9:45 am
     # latest minutes to open new trade
-    end_trading_minutes_before_close   = (11 * 60 + 0) - MARKET_OPEN_MINUTES  # 210 = 11:00 am
+    end_trading_minutes_before_close   = (15 * 60 + 30) - MARKET_OPEN_MINUTES  # 210 = 11:00 am
 
 
     symbol: str = 'SPY'
@@ -41,22 +41,30 @@ class ShortIronCondorConfig:
     dte_range: tuple[int,int] = (0,1)
     short_call_delta_range: tuple[float, float] = (0.10, 0.30)
     short_put_delta_range: tuple[float, float] = (-0.30, -0.10) 
+    is_use_fixed_delta: bool = True
+    short_delta_fixed_target: float = 15
     call_spread_width: int = 5
     put_spread_width: int = 5
     spread_width_range: tuple[int, int] = (2,10)
+    is_use_fixed_spread_width: bool = True
+    fixed_spread_width: int = 5
     
     # Position Management
     position_size: int = 1  # contracts per trade
     max_open_positions: int = 1
     max_trades_per_day: int = 2
-    
+    is_check_max_trades_per_day: bool = False
+    is_check_max_open_positions: bool = False
+
     # Risk Parameters
     max_loss_per_trade: float = 500
     max_portfolio_loss: float = 5000
     profit_target_percent: float = 0.8 * 100  # Close at 50% profit
     max_loss_percent: float = -0.5 * 100 # Close at 20% profit 
-    close_minutes_before_close: int = 180
-    liquidate_minutes_before_close: int = 60
+    is_check_profit_target_percent: bool = False
+    is_check_max_loss_percent: bool = False
+    close_minutes_before_close: int = 15
+    liquidate_minutes_before_close: int = 5
     
     # Symbols to trade
     symbols: list = None
@@ -72,6 +80,10 @@ class ContractSelectionConfig:
     short_call_delta_range: tuple[float, float]
     short_put_delta_range: tuple[float, float]
     spread_width_range: tuple[float, float]
+    is_use_fixed_spread_width: bool
+    fixed_spread_width: int
+    is_use_fixed_delta: bool
+    short_delta_fixed_target: float
 
 @dataclass(frozen=True)
 class IronCondorScoringConfig:
@@ -98,6 +110,7 @@ class IronCondorScoringConfig:
     
 @dataclass
 class TradeDayFilterConfig:
+    is_trade_day_filter_active: bool = False
     is_check_macro_event: bool = False
     is_check_overnight_gap: bool = False
     is_check_vwap_threshold: bool = False

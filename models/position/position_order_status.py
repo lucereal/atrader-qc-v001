@@ -1,0 +1,15 @@
+# region imports
+from AlgorithmImports import *
+# endregion
+
+# Your New Python File
+class PositionOrderStatus(Enum):
+    FILLED = "FILLED"
+    CANCELED = "CANCELED"
+    SUBMITTED = "SUBMITTED"
+    INVALID = "INVALID"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
+    PARTIAL = "PARTIAL"
+    PARTIALLY_CANCELED_AND_PENDING = "PARTIALLY_CANCELED_AND_PENDING"
+    INVALID_TICKET_COUNT = "INVALID_TICKET_COUNT"
+    NONE = "NONE"

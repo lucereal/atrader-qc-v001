@@ -1,6 +1,6 @@
 # region imports
 from AlgorithmImports import *
-from models.candidates import IronCondorCandidate
+from models import IronCondorCandidate
 # endregion
 
 class ScorerResult:
@@ -37,6 +37,9 @@ class OptionChainFinderResult:
         self.em = 0.0
         self.had_error: bool = False
         self.exception = None
+    
+    def is_calls_and_puts_not_empty(self):
+        return len(self.calls) > 0 and len(self.puts) > 0
 
 class RuleResult:
     def __init__(self):

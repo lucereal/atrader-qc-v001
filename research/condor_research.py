@@ -1,10 +1,14 @@
+# region imports
+from AlgorithmImports import *
+# endregion
+# region imports
 import pandas as pd
 import numpy as np
 from research.research_utils import (
     get_latest_trade_analytics_key,
     expectancy
 )
-
+# endregion
 
 class CondorResearch:
     def __init__(self, df: pd.DataFrame, cfg=None):
@@ -20,6 +24,11 @@ class CondorResearch:
         self.df["loss"] = self.df["pnl"] <= 0
         self.df["is_win"] = self.df["pos.pnl"] > 0
         self._prepare_entry_exit_stats()
+        self._prepare_tech_fetures()
+        self._prepare_risk_features()
+
+        #last
+        self._prepare_buckets()
 
     def get_win_rate(self):
         num_positions = self.df.shape[0]
@@ -37,11 +46,6 @@ class CondorResearch:
         return 100 * self.df["pnl"].sum()
 
     def entry_exit_stats_group(self, view: str = "tidy", grid_value: str = None):
-        bucket = self.add_bucket(
-            source_col="entry_minutes_since_open",
-            bins=self.cfg.time_bins,
-            name="time_bucket"
-        )
         tidy = self.group_stats(keys=["time_bucket"], value_col="pnl", include_expectancy=False)
         if view == "multi":
             return self.as_multiindex(tidy, keys=["time_bucket"], cols=["count","mean","win_rate","tail_ratio_q05","expectancy","low_confidence"])
@@ -50,22 +54,48 @@ class CondorResearch:
         return tidy
 
     def time_and_adx_stats(self, view: str = "tidy", grid_value: str = None):
-        time_bucket = self.add_bucket(
-            source_col="entry_minutes_since_open",
-            bins=self.cfg.time_bins,
-            name="time_bucket"
-        )
-        adx_bucket = self.add_bucket(
-            source_col="pos.position.technicals.current_adx",
-            bins=self.cfg.adx_bins,
-            name="adx_bucket"
-        )
         tidy = self.group_stats(keys=["time_bucket", "adx_bucket"], value_col="pnl",
             include_expectancy=False)
         if view == "multi":
             return self.as_multiindex(tidy, keys=["time_bucket", "adx_bucket"], cols=["count","mean","win_rate","tail_ratio_q05","expectancy","low_confidence"])
         if view == "grid" and grid_value:
             return self.grid(tidy, index="time_bucket", columns="adx_bucket", values=grid_value)
+        return tidy
+
+    def time_and_vwap_atr_stats(self, view: str = "tidy", grid_value: str = None):
+        tidy = self.group_stats(keys=["time_bucket", "vwap_atr_bucket"], value_col="pnl",
+            include_expectancy=False)
+        if view == "multi":
+            return self.as_multiindex(tidy, keys=["time_bucket", "vwap_atr_bucket"], cols=["count","mean","win_rate","tail_ratio_q05","expectancy","low_confidence"])
+        if view == "grid" and grid_value:
+            return self.grid(tidy, index="time_bucket", columns="vwap_atr_bucket", values=grid_value)
+        return tidy
+    
+    def time_and_gap_pct_stats(self, view: str = "tidy", grid_value: str = None):
+        tidy = self.group_stats(keys=["time_bucket", "gap_bucket"], value_col="pnl",
+            include_expectancy=False)
+        if view == "multi":
+            return self.as_multiindex(tidy, keys=["time_bucket", "gap_bucket"], cols=["count","mean","win_rate","tail_ratio_q05","expectancy","low_confidence"])
+        if view == "grid" and grid_value:
+            return self.grid(tidy, index="time_bucket", columns="gap_bucket", values=grid_value)
+        return tidy
+
+    def time_and_bb_position_stats(self, view: str = "tidy", grid_value: str = None):
+        tidy = self.group_stats(keys=["time_bucket", "bb_bucket"], value_col="pnl",
+            include_expectancy=False)
+        if view == "multi":
+            return self.as_multiindex(tidy, keys=["time_bucket", "bb_bucket"], cols=["count","mean","win_rate","tail_ratio_q05","expectancy","low_confidence"])
+        if view == "grid" and grid_value:
+            return self.grid(tidy, index="time_bucket", columns="bb_bucket", values=grid_value)
+        return tidy
+    
+    def time_and_vix1d_stats(self, view: str = "tidy", grid_value: str = None):
+        tidy = self.group_stats(keys=["time_bucket", "vix1d_bucket"], value_col="pnl",
+            include_expectancy=False)
+        if view == "multi":
+            return self.as_multiindex(tidy, keys=["time_bucket", "vix1d_bucket"], cols=["count","mean","win_rate","tail_ratio_q05","expectancy","low_confidence"])
+        if view == "grid" and grid_value:
+            return self.grid(tidy, index="time_bucket", columns="vix1d_bucket", values=grid_value)
         return tidy
 
     def add_bucket(self, source_col: str, bins, name: str | None = None, labels = None, 
@@ -125,6 +155,21 @@ class CondorResearch:
                     out[f"upside_ratio_{qname}"] = out[qname].abs() / denom
         return out.sort_values("count", ascending=False).reset_index(drop=True)
 
+    @staticmethod
+    def pivot_view(tidy: pd.DataFrame, index: str, columns: str, values: str):
+        """
+        Show me this metric laid out as rows × columns
+        """
+        return tidy.pivot_table(index=index, columns=columns, values=values, aggfunc="first")
+
+    def as_multiindex(self, tidy: pd.DataFrame, keys: list[str], cols=None) -> pd.DataFrame:
+        cols = cols or [c for c in tidy.columns if c not in keys]
+        return tidy.set_index(keys).sort_index()[cols]
+
+    def grid(self, tidy: pd.DataFrame, index: str, columns: str, values: str) -> pd.DataFrame:
+        return tidy.pivot_table(index=index, columns=columns, values=values, aggfunc="first")
+
+
     def _wl_stats(self, x: pd.Series, win_threshold: float = 0.0, zero_is_loss: bool = True,
         include_expectancy: bool = True) -> pd.Series:
         x = x.dropna()
@@ -146,17 +191,6 @@ class CondorResearch:
 
         return pd.Series({"win_rate": win_rate, "avg_win": avg_win, "avg_loss": avg_loss, "expectancy": exp})
 
-    @staticmethod
-    def pivot_view(tidy: pd.DataFrame, index: str, columns: str, values: str):
-        return tidy.pivot_table(index=index, columns=columns, values=values, aggfunc="first")
-
-    def as_multiindex(self, tidy: pd.DataFrame, keys: list[str], cols=None) -> pd.DataFrame:
-        cols = cols or [c for c in tidy.columns if c not in keys]
-        return tidy.set_index(keys).sort_index()[cols]
-
-    def grid(self, tidy: pd.DataFrame, index: str, columns: str, values: str) -> pd.DataFrame:
-        return tidy.pivot_table(index=index, columns=columns, values=values, aggfunc="first")
-
     def _prepare_entry_exit_stats(self):
         self.df["pos.entry"] = pd.to_datetime(self.df["pos.position.entry_time"], errors="coerce")
         self.df["pos.exit"] = pd.to_datetime(self.df["pos.position.exit_time"], errors="coerce")
@@ -171,3 +205,101 @@ class CondorResearch:
             self.df["pos.exit"] - self.df["pos.entry"]
         ).dt.total_seconds() / 60
     
+    def _prepare_tech_fetures(self):
+        price = self.df["pos.position.technicals.current_price"]
+        vwap  = self.df["pos.position.technicals.current_vwap"]
+        atr   = self.df["pos.position.technicals.current_atr"]
+        
+        bb_lo = self.df["pos.position.technicals.current_bb.lower"]
+        bb_hi = self.df["pos.position.technicals.current_bb.upper"]
+
+        open_ = self.df["pos.position.technicals.current_open"]
+        prevc = self.df["pos.position.technicals.prev_day_close"]
+
+        # (price - vwap) in ATR units
+        self.df["price_vs_vwap_atr"] = (price - vwap) / atr.replace(0, np.nan)
+
+        # Bollinger position 0..1 (can be <0 or >1 if outside the bands)
+        denom = (bb_hi - bb_lo).replace(0, np.nan)
+        self.df["bb_position"] = (price - bb_lo) / denom
+
+        # Gap % vs prev close
+        self.df["gap_pct"] = (open_ - prevc) / prevc.replace(0, np.nan)
+
+        
+        self.df["vix1d"] = self.df["pos.position.technicals.current_vix1d"]
+
+    def _prepare_risk_features(self):
+
+        # Max loss normalized by credit (loss per 1 credit)
+        credit = self.df["ic.total_credit"]
+        self.df["max_loss"] = self.df["ic.max_loss"].abs()
+        self.df["max_loss_norm"] = self.df["max_loss"] / credit.replace(0, np.nan)
+
+        # underlying_price_at_entry = self.df["pos.position.underlying_at_exit"]
+        # lo = underlying_price_at_entry - em * self.cfg.em_buffer
+        # hi = underlying_price_at_entry + em * self.cfg.em_buffer
+        # em_width = hi - lo
+        em = self.df["ic.em"]
+        self.df["em"] = em.replace(0, np.nan)
+
+
+
+        self.df["cushion"] = self.df["ic.cushion"]
+        self.df["cushion_norm"] = self.df["cushion"] / self.df["em"].replace(0, np.nan)
+        self.df["cushion_breached"] = self.df["cushion"] < 0
+        self.df["cushion_tight"] = self.df["cushion_norm"] < 0.10  
+        self.df["cushion_norm_width"] = (
+            self.df["cushion"]
+            / (2 * self.df["em"] * self.cfg.em_buffer)
+        ).replace([np.inf, -np.inf], np.nan)
+
+        # use underlying_at_exit
+        # but check this underlying_at_entry
+
+    def risk_feature_nulls(self):
+        cols = ["max_loss_norm", "cushion_norm", "cushion_norm_width"]
+        return self.df[cols].isna().mean().sort_values(ascending=False)
+
+    def _prepare_buckets(self):
+        self.add_bucket(source_col="entry_minutes_since_open", bins=self.cfg.time_bins, name="time_bucket")
+        self.add_bucket(source_col="price_vs_vwap_atr", bins=self.cfg.price_vs_vwap_atr_bins, name="vwap_atr_bucket")
+        self.add_bucket(source_col="pos.position.technicals.current_adx", bins=self.cfg.adx_bins, name="adx_bucket")
+        self.add_bucket(source_col="bb_position", bins=self.cfg.bb_position_bins, name="bb_bucket")
+        self.add_bucket(source_col="gap_pct", bins=self.cfg.gcp_pct_bins, name="gap_bucket")
+        self.add_bucket(source_col="pos.position.technicals.current_vix", bins=self.cfg.vix_bins, name="vix_bucket")
+        self.add_bucket(source_col="pos.position.technicals.current_rsi", bins=self.cfg.rsi_bins, name="rsi_bucket")
+    
+        self.df["vix1d"] = self.df["pos.position.technicals.current_vix1d"]
+        vix1d = self.df["vix1d"].dropna()
+        if len(vix1d) >= 20:
+            self.vix1d_p30 = vix1d.quantile(0.30)
+            self.vix1d_p70 = vix1d.quantile(0.70)
+        else:
+            self.vix1d_p30 = np.nan
+            self.vix1d_p70 = np.nan
+        vix1d_bins = self.resolve_bins(
+            series=vix1d,
+            bins=self.cfg.vix1d_bins,
+            percentiles=self.cfg.vix1d_percentiles
+        )
+        self.add_bucket(source_col="pos.position.technicals.current_vix1d", bins=vix1d_bins, name="vix1d_bucket")
+
+
+        em_bins = self.resolve_bins(series=self.df["ic.em"], bins=self.cfg.em_bins, percentiles=self.cfg.em_percentiles)
+        self.add_bucket(source_col="ic.em", bins=em_bins, name="em_bucket")
+        self.add_bucket("max_loss_norm", self.cfg.max_loss_norm_bins, "max_loss_norm_bucket")
+        self.add_bucket("cushion_norm", self.cfg.cushion_norm_bins, "cushion_norm_bucket")
+        self.df["cushion_breach_bucket"] = np.where(self.df["cushion_breached"], "BREACH", "OK")
+        self.add_bucket("cushion_norm_width", self.cfg.cushion_norm_width_bins, "cushion_norm_width_bucket")
+
+
+
+    def resolve_bins(self, series: pd.Series, bins, percentiles):
+        resolved = []
+        for b in bins:
+            if isinstance(b, str):
+                resolved.append(series.quantile(percentiles[b]))
+            else:
+                resolved.append(b)
+        return resolved

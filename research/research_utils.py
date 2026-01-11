@@ -1,3 +1,6 @@
+# region imports
+from AlgorithmImports import *
+# endregion
 
 def get_latest_trade_analytics_key(object_store):
     keys = object_store.Keys

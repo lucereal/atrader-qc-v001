@@ -2,8 +2,7 @@
 from AlgorithmImports import *
 from analytics.option_metrics import OptionMetrics
 from utils.position_finder_exception import PositionFinderException
-from models.selection.scorer_result import ScorerResult
-from models.candidates import IronCondorCandidate
+from models import ScorerResult, IronCondorCandidate
 # endregion
 
 class IronCondorScorer:

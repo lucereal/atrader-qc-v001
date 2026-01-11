@@ -2,9 +2,8 @@
 from AlgorithmImports import *
 from utils.logger import Logger
 from selection.option_chain_analyzer import OptionChainAnalyzer
-from models.iron_condor_position import IronCondorPosition, IronCondorLegs, PositionStatus
-from models.position_order_status import PositionOrderStatus
-from models.trade_group import TradeGroup, TradeOrder
+from models import IronCondorPosition, IronCondorLegs, PositionStatus, TradeGroup, TradeOrder, PositionOrderStatus
+from analytics.trade_snapshots import TradeSnapshots
 # endregion
 
 # Execution layer
@@ -13,11 +12,12 @@ from models.trade_group import TradeGroup, TradeOrder
 # Order Management logic
 
 class TradeManager:
-    def __init__(self, algo, config, logger: Logger, option_chain_analyzer: OptionChainAnalyzer):
+    def __init__(self, algo, config, logger: Logger, option_chain_analyzer: OptionChainAnalyzer, trade_snapshots: TradeSnapshots):
         self.algo = algo
         self.config = config
         self.logger = logger
         self.option_chain_analyzer = option_chain_analyzer
+        self.trade_snapshots = trade_snapshots
         self.trade_groups = {}
         self.order_to_group = {}
         self.on_position_opened = None
@@ -74,7 +74,6 @@ class TradeManager:
             return IronCondorLegs("LONG", long_put, short_put, short_call, long_call)
         else: return None
         
-
     def get_pnl_estimate(self, position: IronCondorPosition, closing_legs: IronCondorLegs):
         try:
             closing_prices = closing_legs.get_buy_prices()
@@ -88,6 +87,7 @@ class TradeManager:
             best_percent = (best_pnl / opening_credit) * 100
             mid_percent = (mid_pnl / opening_credit) * 100
             worst_percent = (worst_pnl / opening_credit) * 100
+            pnl_norm = mid_pnl / opening_credit
             
             return {
                 'best': best_pnl,
@@ -95,65 +95,17 @@ class TradeManager:
                 'worst': worst_pnl,
                 'best_percent': best_percent,
                 'mid_percent': mid_percent,
-                'worst_percent': worst_percent
+                'worst_percent': worst_percent,
+                'pnl_norm': pnl_norm,
+                'close_mid': closing_prices['mid'],
+                'close_bid': closing_prices['bid'],
+                'close_ask': closing_prices['ask'],
+                'to_open_actual_cost': to_open_actual_cost,
+                'opening_credit': opening_credit
             }
         except Exception as e:
             self.logger.error(f"Error calculating current close cost: {str(e)}")
             return None
-
-
-
-    def get_status_handler(self, position_status: PositionStatus):
-        handler = self.on_wait
-        
-        if position_status == PositionStatus.SUBMITTED:
-            return self.on_wait
-        if position_status == PositionStatus.OPENED:
-            return self.manage_opened_position
-        
-        # INVALID = immediate error
-        if position_status == PositionStatus.INVALID:
-            handler = self.on_error_invalid_state
-        
-        # SUCCESS = both filled
-        if position_status == PositionStatus.FILLED:
-            handler = self.on_success
-        
-        # close or open partially filled - try wait for all to be filled
-        if position_status == PositionStatus.PARTIALLY_FILLED:
-            handler = self.on_wait
-        
-        # PARTIAL = investigate why
-        if position_status == PositionStatus.PARTIAL:
-            handler = self.on_investigate_partial
-        
-        # CANCELED = handle it (cancel counterpart, update hist)
-        if position_status == PositionStatus.CANCELED:
-            handler = self.on_handle_cancellation
-
-        if position_status == PositionStatus.FILLED:
-            handler = self.on_open_order_filled
-        
-        # Everything else (SUBMITTED, NONE) = wait
-        # This includes: (SUBMITTED, NONE), (SUBMITTED, SUBMITTED), (FILLED, NONE), (FILLED, SUBMITTED), etc.
-        return handler
-
-    def on_error_invalid_state(self, position: IronCondorPosition):
-        position.cancel_all_tickets()
-        return
-    def on_investigate_partial(self, position: IronCondorPosition, trade_group_id):
-        self.on_wait(position, trade_group_id)
-        return
-    def on_handle_cancellation(self, position: IronCondorPosition):
-        position.cancel_all_tickets()
-        return
-    def on_wait(self, position: IronCondorPosition, trade_group_id):
-        return
-    def on_open_order_filled(self, position: IronCondorPosition):
-        return
-
-    def on_success(self, position: IronCondorPosition):
-        return 
     
     def handle_close_position(self, position, trade_group_id = None, closing_legs = None, get_pnl_estimate = None):
         if not closing_legs:
@@ -161,23 +113,37 @@ class TradeManager:
         
         self.close_position(position, closing_legs, trade_group_id)
 
-
+    def add_trade_snapshot(self, underlying, now_time, position: IronCondorPosition, pnl_obj):
+        self.trade_snapshots.add_snapshot(
+            trade_id=position.trade_id,
+            now_time=now_time,
+            trade_entry_time=position.entry_time,
+            spot=underlying,
+            pnl_mid=pnl_obj["mid"],
+            pnl_norm=pnl_obj["pnl_norm"],
+            close_mid=pnl_obj["close_mid"],
+            close_bid=pnl_obj["close_bid"],
+            close_ask=pnl_obj["close_ask"]
+        )
 
     def manage_opened_position(self, position: IronCondorPosition, trade_group_id):
         underlying_price = self.algo.securities[self.config.symbol].price
+        now_time = self.algo.time
+        now_time_str = now_time.strftime("%Y-%m-%d, %H:%M:%S")
         self.logger.info(f'managing position on {self.algo.time}')
         self.logger.info(f'underlying at manage: {underlying_price}')
 
         closing_legs: IronCondorLegs = self.get_similar_position_from_chain(position)
         pnl = self.get_pnl_estimate(position, closing_legs)
+        self.add_trade_snapshot(underlying_price, now_time, position, pnl)
 
         self.logger.info(f'estimated pnl for position: {pnl["mid_percent"]}')
 
-        if pnl["mid_percent"] >= self.config.profit_target_percent:
+        if self.config.is_check_profit_target_percent and pnl["mid_percent"] >= self.config.profit_target_percent:
             position.exit_reason = "PROFIT_TARGET"
             return self.handle_close_position(position, trade_group_id, closing_legs, pnl)
         
-        if pnl["mid_percent"] <= self.config.max_loss_percent:
+        if self.config.is_check_max_loss_percent and pnl["mid_percent"] <= self.config.max_loss_percent:
             position.exit_reason = "LOSS_TARGET"
             return self.handle_close_position(position, trade_group_id, closing_legs, pnl)
         
@@ -325,3 +291,55 @@ class TradeManager:
         
         elif order_status == OrderStatus.CANCELED:
             self._on_cancelled_order(order_event, trade_group_id, order_type)
+
+    def get_status_handler(self, position_status: PositionStatus):
+        handler = self.on_wait
+        
+        if position_status == PositionStatus.SUBMITTED:
+            return self.on_wait
+        if position_status == PositionStatus.OPENED:
+            return self.manage_opened_position
+        
+        # INVALID = immediate error
+        if position_status == PositionStatus.INVALID:
+            handler = self.on_error_invalid_state
+        
+        # SUCCESS = both filled
+        if position_status == PositionStatus.FILLED:
+            handler = self.on_success
+        
+        # close or open partially filled - try wait for all to be filled
+        if position_status == PositionStatus.PARTIALLY_FILLED:
+            handler = self.on_wait
+        
+        # PARTIAL = investigate why
+        if position_status == PositionStatus.PARTIAL:
+            handler = self.on_investigate_partial
+        
+        # CANCELED = handle it (cancel counterpart, update hist)
+        if position_status == PositionStatus.CANCELED:
+            handler = self.on_handle_cancellation
+
+        if position_status == PositionStatus.FILLED:
+            handler = self.on_open_order_filled
+        
+        # Everything else (SUBMITTED, NONE) = wait
+        # This includes: (SUBMITTED, NONE), (SUBMITTED, SUBMITTED), (FILLED, NONE), (FILLED, SUBMITTED), etc.
+        return handler
+
+    def on_error_invalid_state(self, position: IronCondorPosition):
+        position.cancel_all_tickets()
+        return
+    def on_investigate_partial(self, position: IronCondorPosition, trade_group_id):
+        self.on_wait(position, trade_group_id)
+        return
+    def on_handle_cancellation(self, position: IronCondorPosition):
+        position.cancel_all_tickets()
+        return
+    def on_wait(self, position: IronCondorPosition, trade_group_id):
+        return
+    def on_open_order_filled(self, position: IronCondorPosition):
+        return
+
+    def on_success(self, position: IronCondorPosition):
+        return 

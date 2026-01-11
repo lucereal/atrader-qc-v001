@@ -3,8 +3,7 @@ from AlgorithmImports import *
 from strategy.config import ContractSelectionConfig
 from option_chain_analyzer import OptionChainAnalyzer
 from analytics.option_metrics import OptionMetrics
-from models.candidates import VerticalCandidate
-from models.selection.finder_result import ContractSelectorResult
+from models import VerticalCandidate, ContractSelectorResult
 from utils.position_finder_exception import PositionFinderException
 # endregion
 
@@ -15,6 +14,39 @@ from utils.position_finder_exception import PositionFinderException
 class ContractSelector:
     def __init__(self, logger):
         self.logger = logger
+
+    def select_vertical_spreads_fixed_width(self, sel_cfg, short_calls, short_puts, symbol, expiry) -> ContractSelectorResult:
+        selector_result = ContractSelectorResult()
+        try:
+            fixed_spread_width = sel_cfg.fixed_spread_width
+
+            call_spreads = {}
+            for short_call in short_calls:
+                longs = self.option_chain_analyzer.long_legs_for_short_fixed_width(symbol,
+                    short_call, expiry, fixed_spread_width, "call"
+                )
+                if longs:
+                    call_spreads[short_call] = longs
+
+            put_spreads = {}
+            for short_put in short_puts:
+                longs = self.long_legs_for_short(symbol,
+                    short_put, expiry, fixed_spread_width, "put"
+                )
+                if longs:
+                    put_spreads[short_put] = longs
+            
+            put_verticals = self.get_vertical_candidates(put_spreads, "put")
+            call_verticals = self.get_vertical_candidates(call_spreads, "call")
+
+            selector_result.call_verticals = call_verticals
+            selector_result.put_verticals = put_verticals
+
+        except Exception as e:
+            selector_result.had_error = True
+            selector_result.exception = e
+        
+        return selector_result
 
     def select_vertical_spreads(self, sel_cfg, calls, puts) -> ContractSelectorResult:
         selector_result = ContractSelectorResult()
@@ -72,7 +104,6 @@ class ContractSelector:
                 vert_cand = OptionMetrics.vertical_candidate(short, long, side)
                 verticals.append(vert_cand)
         return verticals
-
 
     def long_legs_for_short(self, short_contract, same_side_contracts, 
         width_range: tuple[float, float],

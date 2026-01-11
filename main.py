@@ -2,7 +2,7 @@ import json
 from AlgorithmImports import *
 from strategy.short_iron_condor_strategy import ShortIronCondorStrategy
 from utils.logger import Logger
-from models.position_order_status import PositionOrderStatus
+from models import PositionOrderStatus
 from strategy.config import ShortIronCondorConfig, AlgorithmConfig, TradeDayFilterConfig, IronCondorScoringConfig
 from portfolio.portfolio_manager import PortfolioManager
 from selection.option_chain_analyzer import OptionChainAnalyzer
@@ -12,6 +12,8 @@ from selection.contract_selector import ContractSelector
 from selection.iron_condor_finder import IronCondorFinder
 from selection.iron_condor_scorer import IronCondorScorer
 from analytics.trade_analytics import TradeAnalytics
+from analytics.trade_snapshots import TradeSnapshots
+
 
 
 class SimpleShortIronCondorStrategy(QCAlgorithm):
@@ -53,11 +55,12 @@ class SimpleShortIronCondorStrategy(QCAlgorithm):
 
         self.trading_day_filter_config = TradeDayFilterConfig()
         self.trading_day_filter = TradingDayFilter(self.trading_day_filter_config)
-
-        self.trade_analytics = TradeAnalytics(logger=self.logger)
+        self.trade_snapshots = TradeSnapshots()
+        self.trade_analytics = TradeAnalytics(logger=self.logger, trade_snapshots=self.trade_snapshots)
+        
         
         self.option_chain_analyzer = OptionChainAnalyzer(self, config=self.ic_config, logger=self.logger)
-        self.trade_manager = TradeManager(algo=self, config=self.ic_config, logger=self.logger, option_chain_analyzer=self.option_chain_analyzer)
+        self.trade_manager = TradeManager(algo=self, config=self.ic_config, logger=self.logger, option_chain_analyzer=self.option_chain_analyzer, trade_snapshots=self.trade_snapshots)
         self.iron_condor_scorer_config = IronCondorScoringConfig
         self.iron_condor_scorer = IronCondorScorer(config=self.iron_condor_scorer_config)
         self.contract_selector = ContractSelector(logger=self.logger)
@@ -108,7 +111,7 @@ class SimpleShortIronCondorStrategy(QCAlgorithm):
         technicals = self.get_technicals(self.ic_config.symbol, self.current_slice)
         if technicals:
 
-            can_trade = self.can_trade_today(self.current_slice)
+            can_trade = self.can_trade_today(self.current_slice, technicals, self.trading_day_filter_config.is_trade_day_filter_active)
             
             self.short_iron_condor_strategy.on_schedule_iron_condor_strategy(can_trade, self.time, technicals)
 
@@ -158,13 +161,13 @@ class SimpleShortIronCondorStrategy(QCAlgorithm):
         algo_config_json = self.get_algo_run_config_json()
         stats = self.short_iron_condor_strategy.on_end_of_algorithm()
         trade_analytics = self._get_trade_analytics()
+        trade_snapshots = self.trade_snapshots.trade_snapshots
 
-        self.save_file_in_obj_store('trade_analytics.json',trade_analytics)
+        algo_obj_unique_key = self.get_obj_store_unique_key()
+        self.save_file_in_obj_store(algo_obj_unique_key, 'trade_analytics.json',trade_analytics)
+        self.save_file_in_obj_store(algo_obj_unique_key, 'trade_snapshots.json',trade_snapshots)
         # self.save_file_in_obj_store('algo_config.json',algo_config_json)
         # self.save_file_in_obj_store('stats.json',stats)
-
-        # escaped = msg.encode("unicode_escape").decode("utf-8")
-        # self.log(escaped)
         return None
     
     def get_technicals(self, symbol, data):
@@ -227,8 +230,10 @@ class SimpleShortIronCondorStrategy(QCAlgorithm):
         }
         return trade_day_data
     
-    def can_trade_today(self, data):
-        trade_day_data = self.get_technicals(self.ic_config.symbol, data)
+    def can_trade_today(self, data, technicals, is_trade_day_filter_active: bool):
+        if not is_trade_day_filter_active:
+            return True
+        trade_day_data = technicals
         if trade_day_data:
             can_trade_today_result = self.trading_day_filter.can_trade_today(trade_day_data)
             
@@ -389,17 +394,16 @@ class SimpleShortIronCondorStrategy(QCAlgorithm):
 
         return message
 
-    def save_file_in_obj_store(self, filename, message):
+    def get_obj_store_unique_key(self):
         algorithm_id = self.algorithm_id
-        # Use a consistent, sortable date format (e.g., ISO 8601)
         run_time = self.time.strftime("%Y-%m-%d_%H-%M-%S") 
-        # ("%Y-%m-%d, %H:%M:%S")
-        # Combine them to create a unique key
-        unique_key = f"{algorithm_id}_{run_time}_{filename}"
+        return f"{algorithm_id}_{run_time}"
 
+    def save_file_in_obj_store(self, unique_key, filename, message):
+        obj_key = f"{unique_key}_{filename}"
         import json
         msgstr = json.dumps(message)
-        self.object_store.save(unique_key, msgstr)
+        self.object_store.save(obj_key, msgstr)
 
     def save_message_in_obj_store(self, message):
         algorithm_id = self.algorithm_id

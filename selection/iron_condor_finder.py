@@ -4,7 +4,7 @@ from selection.iron_condor_scorer import IronCondorScorer
 from selection.contract_selector import ContractSelector
 from selection.option_chain_analyzer import OptionChainAnalyzer
 from strategy.config import ContractSelectionConfig, IronCondorScoringConfig
-from models.candidates import VerticalCandidate, IronCondorCandidate
+from models import VerticalCandidate, IronCondorCandidate
 from utils.position_finder_exception import PositionFinderException
 from models.selection.scorer_result import ScorerResult, OptionChainFinderResult
 from models.selection.finder_result import FinderResult
@@ -33,6 +33,7 @@ class IronCondorFinder:
                 valid_expiries.add(expiry)
         return valid_expiries
 
+    
     def find_best(self, now_time, symbol, underlying_price, chain, sel_config: ContractSelectionConfig) -> FinderResult:
         finder_result = FinderResult()
         try:
@@ -40,10 +41,22 @@ class IronCondorFinder:
             
             all_score_results: list[ScorerResult] = []
             for expiry in valid_expiries:
-                contract_candidates: OptionChainFinderResult = self.option_chain_analyzer.find_candidates(symbol, expiry, now_time, underlying_price)
-                if not contract_candidates.had_error:
-                    contract_bundle = self.contract_selector.select_vertical_spreads(sel_config, contract_candidates.calls, contract_candidates.puts)
-                    if not contract_bundle.had_error:
+                contract_candidates: OptionChainFinderResult = None
+                if sel_config.is_use_fixed_delta:
+                    contract_candidates = self.option_chain_analyzer.find_fixed_delta(
+                        symbol, expiry, now_time, underlying_price, delta_target)
+                else:
+                    contract_candidates = self.option_chain_analyzer.find_candidates(
+                        symbol, expiry, now_time, underlying_price)
+                if contract_candidates and not contract_candidates.had_error and contract_candidates.is_calls_and_puts_not_empty():
+                    contract_bundle: ContractSelectorResult = None
+                    if sel_config.is_use_fixed_spread_width:
+                        contract_bundle = self.contract_selector.select_vertical_spreads_fixed_width(
+                            sel_cfg, contract_candidates.calls, contract_candidates.puts, symbol, expiry)
+                    else:
+                        contract_bundle = self.contract_selector.select_vertical_spreads(
+                            sel_config, contract_candidates.calls, contract_candidates.puts)
+                    if contract_bundle and not contract_bundle.had_error and contract_bundle.is_verticals_populated():
                         scorer_result = self.iron_condor_scorer.rank(contract_bundle.put_verticals, contract_bundle.call_verticals, underlying_price, contract_candidates.em)
                         finder_result.add_score_result(expiry,scorer_result)
         except Exception as e:

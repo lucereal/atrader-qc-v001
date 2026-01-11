@@ -1,6 +1,5 @@
 from AlgorithmImports import *
-from models.iron_condor_position import IronCondorPosition
-from models.selection.scorer_result import OptionChainFinderResult
+from models import IronCondorPosition, OptionChainFinderResult
 
 class OptionChainAnalyzer:
 
@@ -19,6 +18,37 @@ class OptionChainAnalyzer:
             expiries.add(c.expiry)
         
         return expiries
+    
+    def find_fixed_delta(self, symbol, expiry, now_time, underlying_price, delta_target) -> OptionChainFinderResult:
+        result = OptionChainFinderResult()
+
+        try:
+            chain = self.get_chain(symbol)
+            if not chain or len(chain) == 0:
+                return None
+
+            expiry_contracts = [x for x in chain if x.expiry == expiry]
+
+            calls = [c for c in expiry_contracts if c.right == OptionRight.CALL 
+                and c.greeks is not None and c.greeks.delta is not None]
+            puts = [c for c in expiry_contracts if c.right == OptionRight.PUT 
+                and c.greeks is not None and c.greeks.delta is not None]
+            
+            short_call = min(calls, key=lambda c: abs(c.greeks.delta - delta_target))
+            short_put = min(puts, key=lambda c: abs(c.greeks.delta - delta_target))
+            
+            iv = self.get_implied_volatility(chain, expiry, underlying_price)
+            em = self.get_expected_move(expiry, now_time, underlying_price, iv)
+
+            result.calls = [short_call]
+            result.puts = [short_put]
+            result.iv = iv
+            result.em = em
+        except Exception as e:
+            result.had_error = True
+            result.exception = e
+        return result
+
 
     def find_candidates(self, symbol, expiry, now_time, underlying_price) -> OptionChainFinderResult:
         result = OptionChainFinderResult()
@@ -49,6 +79,50 @@ class OptionChainAnalyzer:
     def get_dte(self, expiry, now_date):
         return (expiry.date() - now_date).days
     
+    def long_legs_for_short_fixed_width(self, symbol, short_contract, 
+        expiry,
+        fixed_width: int,
+        direction: str
+    ):
+        chain = self.get_chain(symbol)
+        if not chain or len(chain) == 0:
+            return None
+
+        expiry_contracts = [x for x in chain if x.expiry == expiry]
+
+        if direction == "call":
+            target_long_strike = short_contract.strike + fixed_width
+            calls = [c for c in expiry_contracts if c.right == OptionRight.CALL 
+                and c.strike is not None and _tradeable(c)]
+            if not calls: return None
+            long_call = min(
+                calls,
+                key=lambda c: abs(c.strike - target_long_strike)
+            )
+            return [long_call]
+        else:
+            target_long_strike = short_contract.strike - fixed_width
+            puts = [c for c in expiry_contracts if c.right == OptionRight.PUT 
+                and c.strike is not None and _tradeable(c)]
+            if not puts: return None
+            long_put = min(
+                puts,
+                key=lambda c: abs(c.strike - target_long_strike)
+            )
+            return [long_put]
+
+    def _tradeable(c) -> bool:
+        """
+        Why use a tradeable filter at all?
+        Even in “no filters” baseline, this isn’t an alpha filter — it’s data hygiene. It prevents your long leg from landing on a dead strike with a crazy spread that corrupts PnL.
+        The one change you should make
+        Guard against missing quotes and use mid (or ask) for the denominator. Also, 0.5 (50%) is pretty lenient; for liquid underlyings you can often use 0.25–0.35. Keep it lenient for baseline.
+        """
+        mid = (c.bid + c.ask) / 2.0
+        rel_spread = (c.ask - c.bid) / max(mid, 1e-6)
+        return (c.bid is not None and c.ask is not None and c.bid > 0 and c.ask > c.bid 
+            and rel_spread <= max_rel_spread)
+
     def long_legs_for_short(self, short_contract, same_side_contracts, 
         width_range: tuple[float, float],
         direction: str

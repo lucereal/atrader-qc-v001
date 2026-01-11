@@ -1,14 +1,13 @@
 # region imports
 from AlgorithmImports import *
-from models.candidates import IronCondorCandidate, VerticalCandidate
-from models.iron_condor_position import IronCondorPosition, IronCondorLegs
+from models import IronCondorCandidate, VerticalCandidate, IronCondorPosition, IronCondorLegs
+from analytics.trade_snapshots import TradeSnapshots
 # endregion
 
-# Your New Python File
-
 class TradeAnalytics:
-    def __init__(self, logger):
+    def __init__(self, logger, trade_snapshots: TradeSnapshots):
         self.logger = logger
+        self.trade_snapshots = trade_snapshots
     
     def aggregate_trades(self, trades):
         num_trades = len(trades)

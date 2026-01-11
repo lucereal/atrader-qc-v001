@@ -1,14 +1,12 @@
 # region imports
 from AlgorithmImports import *
-from models.position_order_status import PositionOrderStatus
 from portfolio.portfolio_manager import PortfolioManager
 from execution.trade_manager import TradeManager
 from utils.logger import Logger
-from models.iron_condor_position import IronCondorPosition, PositionStatus
+from models import IronCondorPosition, PositionStatus, FinderResult, PositionOrderStatus
 from selection.contract_selector import ContractSelector
 from strategy.config import ContractSelectionConfig
 from selection.iron_condor_finder import IronCondorFinder
-from models.selection.finder_result import FinderResult
 # endregion
 
 class ShortIronCondorStrategy:
@@ -44,12 +42,11 @@ class ShortIronCondorStrategy:
             self.logger.info(f'found {len(current_positions.keys())} current positions')
             for k, current_position in list(current_positions.items()):
                 self.trade_manager.manage_position(current_position, k)
-        elif can_trade and can_trade_pm and self.can_open_position():
+        
+        if can_trade and can_trade_pm and self.can_open_position():
             self.logger.info(f'no current positions and can open position {self.algo.time}')
             position = self._get_iron_condor_position(self.symbol, current_time, underlying_price)
             if position:
-                # next thing to do is to cast a wide net but to collect the stats for each trade to see which combination 
-                # all of my metrics lead to the best results.
                 position.technicals = technicals
                 self.logger.info(f'found position to open on {self._get_current_date_str(current_time)}')
                 self.trade_manager.open_position(position)  
@@ -81,6 +78,10 @@ class ShortIronCondorStrategy:
             short_call_delta_range=self.config.short_call_delta_range,
             short_put_delta_range=self.config.short_put_delta_range,
             spread_width_range=self.config.spread_width_range,
+            is_use_fixed_delta=self.config.is_use_fixed_delta,
+            short_delta_fixed_target=self.config.short_delta_fixed_target,
+            is_use_fixed_spread_width=self.config.is_use_fixed_spread_width,
+            fixed_spread_width=self.config.fixed_spread_width
         )
         return sel_cfg
   
@@ -173,8 +174,8 @@ class ShortIronCondorStrategy:
 
     def can_open_position(self):
         if self.is_time_in_trading_window(self.config.symbol): 
-            if self.config.max_trades_per_day > len(self.portfolio_manager.trades_today):
-                if self.config.max_open_positions > self.get_num_positions_open():
+            if self.config.is_check_max_trades_per_day and self.config.max_trades_per_day > len(self.portfolio_manager.trades_today):
+                if self.config.is_check_max_open_positions and self.config.max_open_positions > self.get_num_positions_open():
                     return True
         return False
     

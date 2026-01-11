@@ -1,8 +1,7 @@
 # region imports
 from AlgorithmImports import *
-from models.iron_condor_position import IronCondorPosition, PositionStatus
+from models import IronCondorPosition, PositionStatus, TradeGroup
 import json 
-from models.trade_group import TradeGroup
 # endregion
 
 # keep position state in here.
