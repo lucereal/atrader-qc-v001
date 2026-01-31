@@ -9,6 +9,7 @@ from datetime import datetime, date
 class AlgorithmConfig:
     """QuantConnect/Backtest environment settings"""
     start_date: datetime = datetime(2024, 2, 1)
+    # end_date: datetime = datetime(2024, 2, 8)
     end_date: datetime = datetime(2024, 10, 1)
     initial_cash: float = 100000
     benchmark: str = "SPY"
@@ -32,7 +33,7 @@ class ShortIronCondorConfig:
     # earliest minutes to open new trade
     start_trading_minutes_since_open = (9 * 60 + 45) - MARKET_OPEN_MINUTES  # 15 = 9:45 am
     # latest minutes to open new trade
-    end_trading_minutes_before_close   = (15 * 60 + 30) - MARKET_OPEN_MINUTES  # 210 = 11:00 am
+    end_trading_minutes_before_close = 30#(15 * 60 + 30) - MARKET_OPEN_MINUTES  # 210 = 11:00 am
 
 
     symbol: str = 'SPY'
@@ -42,7 +43,7 @@ class ShortIronCondorConfig:
     short_call_delta_range: tuple[float, float] = (0.10, 0.30)
     short_put_delta_range: tuple[float, float] = (-0.30, -0.10) 
     is_use_fixed_delta: bool = True
-    short_delta_fixed_target: float = 15
+    short_delta_fixed_target: float = 0.15
     call_spread_width: int = 5
     put_spread_width: int = 5
     spread_width_range: tuple[int, int] = (2,10)

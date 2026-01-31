@@ -1,6 +1,6 @@
 # region imports
 from AlgorithmImports import *
-from models import IronCondorCandidate
+from .candidates import IronCondorCandidate
 # endregion
 
 class ScorerResult:

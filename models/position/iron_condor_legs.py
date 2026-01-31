@@ -1,6 +1,6 @@
 # region imports
 from AlgorithmImports import *
-from models import PositionLeg
+from .position_leg import PositionLeg
 # endregion
 
 # Your New Python File

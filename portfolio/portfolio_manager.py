@@ -34,7 +34,14 @@ class PortfolioManager:
     def can_manage_position(self, position):
         return True
     
-        
+    def add_date_to_position(self, now_time, trade_group, position):
+        now_date = now_time.date().strftime("%Y-%m-%d")
+        if now_date not in self.date_to_position.keys():
+            self.date_to_position[now_date] = []
+        self.date_to_position[now_date].append({
+            "trade_group": trade_group,
+            "position": position
+        })
     def on_position_opened(self, trade_group: TradeGroup):
         position = self.all_positions[trade_group.trade_group_id]
         position.set_position_status(PositionStatus.OPENED)
@@ -46,8 +53,7 @@ class PortfolioManager:
         
         self.trades_today.append(position)
         self.open_positions[trade_group.trade_group_id] = self.all_positions[trade_group.trade_group_id]
-        self.date_to_position[self.algo.time.date().strftime("%Y-%m-%d")] = trade_group.trade_group_id
-
+        self.add_date_to_position(self.algo.time, trade_group, position)
         return
     
     def on_position_closed(self, trade_group: TradeGroup):

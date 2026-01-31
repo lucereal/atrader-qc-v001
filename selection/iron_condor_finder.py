@@ -44,15 +44,16 @@ class IronCondorFinder:
                 contract_candidates: OptionChainFinderResult = None
                 if sel_config.is_use_fixed_delta:
                     contract_candidates = self.option_chain_analyzer.find_fixed_delta(
-                        symbol, expiry, now_time, underlying_price, delta_target)
+                        symbol, expiry, now_time, underlying_price, self.config.short_delta_fixed_target)
                 else:
                     contract_candidates = self.option_chain_analyzer.find_candidates(
                         symbol, expiry, now_time, underlying_price)
                 if contract_candidates and not contract_candidates.had_error and contract_candidates.is_calls_and_puts_not_empty():
                     contract_bundle: ContractSelectorResult = None
                     if sel_config.is_use_fixed_spread_width:
+                        call_spreads, put_spreads = self.find_long_leg_with_fixed_width(contract_candidates.calls, contract_candidates.puts, symbol, expiry, sel_config.fixed_spread_width)
                         contract_bundle = self.contract_selector.select_vertical_spreads_fixed_width(
-                            sel_cfg, contract_candidates.calls, contract_candidates.puts, symbol, expiry)
+                            sel_config, call_spreads, put_spreads, symbol, expiry)
                     else:
                         contract_bundle = self.contract_selector.select_vertical_spreads(
                             sel_config, contract_candidates.calls, contract_candidates.puts)
@@ -67,6 +68,23 @@ class IronCondorFinder:
             finder_result.had_error = True
         return finder_result
 
+    def find_long_leg_with_fixed_width(self, short_calls, short_puts, symbol, expiry, fixed_spread_width):
+        call_spreads = {}
+        for short_call in short_calls:
+            longs = self.option_chain_analyzer.long_legs_for_short_fixed_width(symbol,
+                short_call, expiry, fixed_spread_width, "call"
+            )
+            if longs:
+                call_spreads[short_call] = longs
+
+        put_spreads = {}
+        for short_put in short_puts:
+            longs = self.option_chain_analyzer.long_legs_for_short_fixed_width(symbol,
+                short_put, expiry, fixed_spread_width, "put"
+            )
+            if longs:
+                put_spreads[short_put] = longs
+        return call_spreads, put_spreads
 
     def dte_days_fractional(self, now_time, expiry):
         # expiry is a datetime-like; treat expiration as 4:00pm local exchange time

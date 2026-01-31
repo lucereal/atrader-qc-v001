@@ -148,7 +148,7 @@ class ShortIronCondorStrategy:
 
     def is_time_in_trading_window(self, symbol):
         if not self.is_window_possible_today(symbol):
-            self.Log("No-trade: session too short for configured window")
+            self.algo.log("No-trade: session too short for configured window")
             return False
         ms_open = self.minutes_since_open(symbol)
         mt_close = self.minutes_to_close(symbol)
@@ -174,8 +174,8 @@ class ShortIronCondorStrategy:
 
     def can_open_position(self):
         if self.is_time_in_trading_window(self.config.symbol): 
-            if self.config.is_check_max_trades_per_day and self.config.max_trades_per_day > len(self.portfolio_manager.trades_today):
-                if self.config.is_check_max_open_positions and self.config.max_open_positions > self.get_num_positions_open():
+            if (not self.config.is_check_max_trades_per_day) or self.config.max_trades_per_day > len(self.portfolio_manager.trades_today):
+                if (not self.config.is_check_max_open_positions) or self.config.max_open_positions > self.get_num_positions_open():
                     return True
         return False
     

@@ -14,7 +14,8 @@ from selection.iron_condor_scorer import IronCondorScorer
 from analytics.trade_analytics import TradeAnalytics
 from analytics.trade_snapshots import TradeSnapshots
 
-
+# TODO 
+# add reason contract or position was rejected 
 
 class SimpleShortIronCondorStrategy(QCAlgorithm):
     def initialize(self):

@@ -15,27 +15,9 @@ class ContractSelector:
     def __init__(self, logger):
         self.logger = logger
 
-    def select_vertical_spreads_fixed_width(self, sel_cfg, short_calls, short_puts, symbol, expiry) -> ContractSelectorResult:
+    def select_vertical_spreads_fixed_width(self, sel_cfg, call_spreads, put_spreads, symbol, expiry) -> ContractSelectorResult:
         selector_result = ContractSelectorResult()
         try:
-            fixed_spread_width = sel_cfg.fixed_spread_width
-
-            call_spreads = {}
-            for short_call in short_calls:
-                longs = self.option_chain_analyzer.long_legs_for_short_fixed_width(symbol,
-                    short_call, expiry, fixed_spread_width, "call"
-                )
-                if longs:
-                    call_spreads[short_call] = longs
-
-            put_spreads = {}
-            for short_put in short_puts:
-                longs = self.long_legs_for_short(symbol,
-                    short_put, expiry, fixed_spread_width, "put"
-                )
-                if longs:
-                    put_spreads[short_put] = longs
-            
             put_verticals = self.get_vertical_candidates(put_spreads, "put")
             call_verticals = self.get_vertical_candidates(call_spreads, "call")
 

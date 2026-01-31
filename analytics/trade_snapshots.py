@@ -1,8 +1,10 @@
+# region imports
 from utils.snapshot_helpers import (
     minutes_since_open,
     minutes_since_entry,
     horizon_min
 )
+# endregion
 class TradeSnapshots:
     def __init__(self):
         self.trade_snapshots = []

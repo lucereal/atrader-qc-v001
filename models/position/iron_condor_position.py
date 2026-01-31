@@ -1,6 +1,9 @@
 # region imports
 from AlgorithmImports import *
-from models import PositionOrderStatus, IronCondorLegs, PositionLeg
+from .iron_condor_legs import IronCondorLegs
+from .position_order_status import PositionOrderStatus 
+from .position_leg import PositionLeg
+from .position_status import PositionStatus
 import json
 # endregion
 
@@ -34,9 +37,10 @@ class IronCondorPosition:
     def to_dict(self):
         import json
         return {
+            "trade_id": self.trade_id,
             "symbol": str(self.symbol),
             "strategy": "IRON_CONDOR",
-            "status": self.status,
+            "status": self.status.name,
             "total_legs": self.total_legs,
             "underlying_at_entry": self.underlying_at_buy,
             "underlying_at_exit": self.underlying_at_sell,
@@ -65,12 +69,19 @@ class IronCondorPosition:
 # ]
 # self.combo_market_order(legs, 1)
 
+    def _validate_iron_condor_strikes(self, lp, sp, sc, lc) -> bool:
+        # strictly increasing
+        return (lp < sp) and (sp < sc) and (sc < lc)
+
     def get_qc_strategy(self, order_type) -> OptionStrategy:
         if order_type == "OPEN":
             legs = self.opening_legs
         elif order_type == "CLOSE":
             legs = self.closing_legs
         
+        if not self._validate_iron_condor_strikes(legs.get_long_put().strike, legs.get_short_put().strike, 
+            legs.get_short_call().strike, legs.get_long_call().strike):
+            return None
         short_put = legs.get_short_put()
         iron_condor = OptionStrategies.short_iron_condor(
                 short_put.symbol_canonical,
@@ -82,17 +93,20 @@ class IronCondorPosition:
         )
         return iron_condor
     
-    def get_closing_qc_strategy(self) -> OptionStrategy:
-        short_put = self.closing_legs.get_short_put()
-        iron_condor = OptionStrategies.short_iron_condor(
-            short_put.symbol_canonical,
-            long_put_strike=self.opening_legs.get_long_put().strike,
-            short_put_strike=self.opening_legs.get_short_put().strike,
-            short_call_strike=self.opening_legs.get_short_call().strike,
-            long_call_strike=self.opening_legs.get_long_call().strike,
-            expiration=self.closing_legs.get_short_put().expiry
-        )
-        return iron_condor
+    # def get_closing_qc_strategy(self) -> OptionStrategy:
+    #     short_put = self.closing_legs.get_short_put()
+    #     if not self._validate_iron_condor_strikes(legs.get_long_put(), legs.get_short_put(), 
+    #         legs.get_short_call(), legs.get_long_call()):
+    #         return None
+    #     iron_condor = OptionStrategies.short_iron_condor(
+    #         short_put.symbol_canonical,
+    #         long_put_strike=self.opening_legs.get_long_put().strike,
+    #         short_put_strike=self.opening_legs.get_short_put().strike,
+    #         short_call_strike=self.opening_legs.get_short_call().strike,
+    #         long_call_strike=self.opening_legs.get_long_call().strike,
+    #         expiration=self.closing_legs.get_short_put().expiry
+    #     )
+    #     return iron_condor
 
 
     def get_opening_contracts(self):

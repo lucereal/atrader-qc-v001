@@ -1,7 +1,9 @@
+
+from enum import Enum
+
 class PositionStatus(Enum):
     FILLED = "FILLED"
     CANCELED = "CANCELED"
-    SUBMITTED = "SUBMITTED"
     INVALID = "INVALID"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
     PARTIAL = "PARTIAL"

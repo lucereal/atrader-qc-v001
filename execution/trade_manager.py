@@ -30,14 +30,20 @@ class TradeManager:
         underlying_price = self.algo.securities[self.config.symbol].price
         position.entry_time = self.algo.time
         position.underlying_at_buy = underlying_price
-        order_tickets = self.algo.buy(position.get_qc_strategy("OPEN"), num_orders, tag=tag)
+        qc_ic_pos = position.get_qc_strategy("OPEN")
+        if qc_ic_pos is None:
+            return None
+        order_tickets = self.algo.buy(qc_ic_pos, num_orders, tag=tag)
         return order_tickets
 
     def sell(self, position: IronCondorPosition, num_orders: int, tag):
         underlying_price = self.algo.securities[self.config.symbol].price
         position.exit_time = self.algo.time
         position.underlying_at_sell = underlying_price
-        order_tickets = self.algo.sell(position.get_qc_strategy("CLOSE"), num_orders, tag=tag)
+        qc_ic_pos = position.get_qc_strategy("CLOSE")
+        if qc_ic_pos is None:
+            return None
+        order_tickets = self.algo.sell(qc_ic_pos, num_orders, tag=tag)
         return order_tickets
 
     def manage_position(self, position: IronCondorPosition, trade_group_id):

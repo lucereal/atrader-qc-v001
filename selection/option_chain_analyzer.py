@@ -30,12 +30,12 @@ class OptionChainAnalyzer:
             expiry_contracts = [x for x in chain if x.expiry == expiry]
 
             calls = [c for c in expiry_contracts if c.right == OptionRight.CALL 
-                and c.greeks is not None and c.greeks.delta is not None]
+                and c.greeks is not None and c.greeks.delta is not None and self._tradeable(c)]
             puts = [c for c in expiry_contracts if c.right == OptionRight.PUT 
-                and c.greeks is not None and c.greeks.delta is not None]
+                and c.greeks is not None and c.greeks.delta is not None and self._tradeable(c)]
             
             short_call = min(calls, key=lambda c: abs(c.greeks.delta - delta_target))
-            short_put = min(puts, key=lambda c: abs(c.greeks.delta - delta_target))
+            short_put = min(puts, key=lambda c: abs(abs(c.greeks.delta) - delta_target))
             
             iv = self.get_implied_volatility(chain, expiry, underlying_price)
             em = self.get_expected_move(expiry, now_time, underlying_price, iv)
@@ -89,38 +89,52 @@ class OptionChainAnalyzer:
             return None
 
         expiry_contracts = [x for x in chain if x.expiry == expiry]
+        if not expiry_contracts: return None
 
         if direction == "call":
+            # future allow variable width selection like min and max while being under or over target width
             target_long_strike = short_contract.strike + fixed_width
             calls = [c for c in expiry_contracts if c.right == OptionRight.CALL 
-                and c.strike is not None and _tradeable(c)]
+                and c.strike is not None and self._tradeable(c)]
             if not calls: return None
             long_call = min(
                 calls,
                 key=lambda c: abs(c.strike - target_long_strike)
             )
+            if long_call.strike <= short_contract.strike:
+                return None
             return [long_call]
         else:
             target_long_strike = short_contract.strike - fixed_width
             puts = [c for c in expiry_contracts if c.right == OptionRight.PUT 
-                and c.strike is not None and _tradeable(c)]
+                and c.strike is not None and self._tradeable(c)]
             if not puts: return None
             long_put = min(
                 puts,
                 key=lambda c: abs(c.strike - target_long_strike)
             )
+            if long_put.strike >= short_contract.strike:
+                return None
             return [long_put]
 
-    def _tradeable(c) -> bool:
+    def _tradeable(self, c, max_rel_spread: float = 0.50) -> bool:
         """
         Why use a tradeable filter at all?
         Even in “no filters” baseline, this isn’t an alpha filter — it’s data hygiene. It prevents your long leg from landing on a dead strike with a crazy spread that corrupts PnL.
         The one change you should make
         Guard against missing quotes and use mid (or ask) for the denominator. Also, 0.5 (50%) is pretty lenient; for liquid underlyings you can often use 0.25–0.35. Keep it lenient for baseline.
+            if bid is None or ask is None:
+            return False
+        if bid <= 0 or ask <= 0 or ask <= bid:
+            return False
         """
-        mid = (c.bid + c.ask) / 2.0
-        rel_spread = (c.ask - c.bid) / max(mid, 1e-6)
-        return (c.bid is not None and c.ask is not None and c.bid > 0 and c.ask > c.bid 
+        if c.bid_price is None or c.ask_price is None:
+            return False
+        if c.bid_price <= 0 or c.ask_price <= 0 or c.ask_price <= c.bid_price:
+            return False
+        mid = (c.bid_price + c.ask_price) / 2.0
+        rel_spread = (c.ask_price - c.bid_price) / max(mid, 1e-6)
+        return (c.bid_price is not None and c.ask_price is not None and c.bid_price > 0 and c.ask_price > c.bid_price 
             and rel_spread <= max_rel_spread)
 
     def long_legs_for_short(self, short_contract, same_side_contracts, 

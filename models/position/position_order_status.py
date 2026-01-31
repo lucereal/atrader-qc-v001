@@ -1,7 +1,5 @@
-# region imports
-from AlgorithmImports import *
-# endregion
 
+from enum import Enum
 # Your New Python File
 class PositionOrderStatus(Enum):
     FILLED = "FILLED"

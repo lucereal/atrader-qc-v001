@@ -9,8 +9,16 @@ class CondorResearchConfig:
     price_vs_vwap_atr_bins = [-5, -1, -0.25, 0.25, 1, 5]
     bb_position_bins = [-np.inf, 0, 0.25, 0.75, 1.0, np.inf]
     gcp_pct_bins = [-np.inf, -0.01, -0.002, 0.002, 0.01, np.inf]
-    adx_bins = [0,15,25,40]
-    time_bins = [0, 30, 90, 180, 300]
+    adx_bins = [-np.inf,15,25,40,60,np.inf]
+    time_bins = [-np.inf, 0, 30, 90, 180, 300, np.inf]
+    time_bins_labels = [
+        "premarket/neg",
+        "0-30",
+        "30-90",
+        "90-180",
+        "180-300",
+        "300+"
+    ]
     rsi_bins = [-np.inf, 30, 45, 55, 70, np.inf]
     vix_bins = [-np.inf, 15, 20, 25, np.inf]
     vix1d_bins = [-np.inf, "p30", "p70", np.inf]

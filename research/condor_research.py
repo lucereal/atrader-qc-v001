@@ -15,6 +15,8 @@ class CondorResearch:
         self.cfg = cfg  
         self.df = df.copy()
         self.prepare()
+        self.total_trades = None
+        self.total_unq_trade_ids = None
 
 
     def prepare(self):
@@ -23,12 +25,17 @@ class CondorResearch:
         self.df["win"] = self.df["pnl"] > 0
         self.df["loss"] = self.df["pnl"] <= 0
         self.df["is_win"] = self.df["pos.pnl"] > 0
+        
+        # self.total_trades = self.df["trade_id"].nunique()
+
         self._prepare_entry_exit_stats()
         self._prepare_tech_fetures()
         self._prepare_risk_features()
+        
 
         #last
         self._prepare_buckets()
+        self._prepare_day_stats()
 
     def get_win_rate(self):
         num_positions = self.df.shape[0]
@@ -44,6 +51,15 @@ class CondorResearch:
 
     def get_total_pnl(self):
         return 100 * self.df["pnl"].sum()
+
+    def gap_to_daily_pnl_stats(self, view: str = "tidy"):
+        tidy = self.group_stats_df(
+            df=self.daily,
+            keys=["gap_bucket"],
+            value_col="day_pnl",
+            include_expectancy=False,
+        )
+        return tidy
 
     def entry_exit_stats_group(self, view: str = "tidy", grid_value: str = None):
         tidy = self.group_stats(keys=["time_bucket"], value_col="pnl", include_expectancy=False)
@@ -72,6 +88,13 @@ class CondorResearch:
         return tidy
     
     def time_and_gap_pct_stats(self, view: str = "tidy", grid_value: str = None):
+        gap_by_day = (
+            df.groupby("trade_date", as_index=False)
+            .agg(gap_bucket=("gap_bucket", "first"))
+        )
+
+        daily = daily.merge(gap_by_day, on="trade_date", how="left")
+
         tidy = self.group_stats(keys=["time_bucket", "gap_bucket"], value_col="pnl",
             include_expectancy=False)
         if view == "multi":
@@ -110,10 +133,19 @@ class CondorResearch:
         )
         return bucket_col
 
+    def group_stats_df(self, df: pd.DataFrame, keys: list[str], value_col: str = "pnl", **kwargs):
+        orig = self.df
+        try:
+            self.df = df
+            return self.group_stats(keys=keys, value_col=value_col, **kwargs)
+        finally:
+            self.df = orig
+            
     def group_stats(self, keys: list[str], value_col: str = "pnl", q_low=(0.01, 0.05), q_high=(0.95,),
             include_expectancy: bool = True, min_count: int = 20, eps_mean: float = 1e-12, 
             add_tail_ratios: bool = True, add_upside_ratios: bool = False,
             win_threshold: float = 0.0, zero_is_loss: bool = True,
+            extra_aggs: dict[str, dict[str, str]] | None = None
         ) -> pd.DataFrame:
         """
         Compute stats over any number of grouping keys (bucket columns or categorical columns).
@@ -137,9 +169,15 @@ class CondorResearch:
             agg[f"q{int(p*100):02d}"] = q(p)
         agg["max"] = "max"
         g = self.df.groupby(keys, dropna=False)[value_col] 
+
         out = g.agg(**agg).reset_index()
         wl = g.apply(lambda s: self._wl_stats(s, win_threshold, zero_is_loss)).unstack().reset_index()
         out = out.merge(wl, on=keys, how="left")
+        if extra_aggs:
+            gx = self.df.groupby(keys, dropna=False)
+            for col, named_aggs in extra_aggs.items():
+                tmp = gx[col].agg(**named_aggs).reset_index()
+                out = out.merge(tmp, on=keys, how="left")
         out["low_confidence"] = out["count"] < min_count
         denom = out["mean"].abs().clip(lower=eps_mean)
         if add_tail_ratios:
@@ -191,9 +229,26 @@ class CondorResearch:
 
         return pd.Series({"win_rate": win_rate, "avg_win": avg_win, "avg_loss": avg_loss, "expectancy": exp})
 
+    def get_trade_entry_cadence(self):
+        return df["mins_since_prev_trade"].describe(percentiles=[0.1, 0.25, 0.5, 0.75, 0.9])
+
+    def get_trades_per_day(self):
+        trades_per_day = self.df.groupby("trade_date").size()
+        return trades_per_day
+
     def _prepare_entry_exit_stats(self):
+        
+
         self.df["pos.entry"] = pd.to_datetime(self.df["pos.position.entry_time"], errors="coerce")
+        self.df["pos.entry_tz"] = pd.to_datetime(self.df["pos.position.entry_time"], errors="coerce", utc=True).dt.tz_convert(None)
+
+        self.df["mins_since_prev_trade"] = (
+            self.df["pos.entry_tz"] - self.df["pos.entry_tz"].shift(1)
+        ).dt.total_seconds() / 60
+
         self.df["pos.exit"] = pd.to_datetime(self.df["pos.position.exit_time"], errors="coerce")
+        self.df["pos.exit_tz"] = pd.to_datetime(self.df["pos.position.exit_time"], errors="coerce", utc=True).dt.tz_convert(None)
+
         self.df["entry_hour"] = self.df["pos.entry"].dt.hour
         self.df["entry_minute"] = self.df["pos.entry"].dt.minute
         self.df["entry_minutes_since_open"] = (
@@ -204,6 +259,8 @@ class CondorResearch:
         self.df["hold_minutes"] = (
             self.df["pos.exit"] - self.df["pos.entry"]
         ).dt.total_seconds() / 60
+
+        
     
     def _prepare_tech_fetures(self):
         price = self.df["pos.position.technicals.current_price"]
@@ -262,7 +319,7 @@ class CondorResearch:
         return self.df[cols].isna().mean().sort_values(ascending=False)
 
     def _prepare_buckets(self):
-        self.add_bucket(source_col="entry_minutes_since_open", bins=self.cfg.time_bins, name="time_bucket")
+        self.add_bucket(source_col="entry_minutes_since_open", bins=self.cfg.time_bins, labels=self.cfg.time_bins_labels, name="time_bucket")
         self.add_bucket(source_col="price_vs_vwap_atr", bins=self.cfg.price_vs_vwap_atr_bins, name="vwap_atr_bucket")
         self.add_bucket(source_col="pos.position.technicals.current_adx", bins=self.cfg.adx_bins, name="adx_bucket")
         self.add_bucket(source_col="bb_position", bins=self.cfg.bb_position_bins, name="bb_bucket")
@@ -303,3 +360,28 @@ class CondorResearch:
             else:
                 resolved.append(b)
         return resolved
+
+    def _prepare_day_stats(self):
+        self.df = self.df.dropna(subset=["pos.entry"])
+        self.df["trade_date"] = self.df["pos.entry"].dt.date
+
+
+        daily_pnl = (
+            self.df.groupby("trade_date", as_index=False)
+                .agg(
+                    day_pnl=("pnl", "sum"),
+                    trades=("pnl", "size"),
+                )
+            )
+
+        # 2) daily gap regime (one per day)
+        daily_gap = (
+            self.df.groupby("trade_date", as_index=False)
+            .agg(
+                gap_pct=("gap_pct", "first"),
+                gap_bucket=("gap_bucket", "first"),
+            )
+        )
+
+        # 3) merged daily table (this is what you should bucket+stats on)
+        self.daily = daily_pnl.merge(daily_gap, on="trade_date", how="left")
